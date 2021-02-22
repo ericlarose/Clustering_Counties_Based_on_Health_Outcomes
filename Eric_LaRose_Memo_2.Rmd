@@ -1,0 +1,210 @@
+---
+title: "Eric LaRose PPOL 566 Memo 2"
+output: html_notebook
+---
+
+This produces memo 2 for the DS3 final project.
+
+```{r}
+# Load in libraries that we'll use
+library(tidycensus)
+library(acs)
+library(tidyverse)
+library(readxl)
+```
+
+Get the ACS data that we'll need. All data is from the 2014-2018 American Community Survey.
+
+```{r}
+# Percent of population age 25-44 with at least some college education
+ACS_education_data <- get_acs(year = 2018,
+                              geography = 'county',
+                              variables = c('B15001_011', # Male 25-34
+                                            'B15001_015', # 15-18 are male 25-34 with at 
+                                            # least a bachelor's degree
+                                            'B15001_016',
+                                            'B15001_017',
+                                            'B15001_018',
+                                            'B15001_019', # Male 35-44
+                                            'B15001_023', # 15-18 are male 35-44 with at 
+                                            # least a bachelor's degree
+                                            'B15001_024',
+                                            'B15001_025',
+                                            'B15001_026',
+                                            'B15001_052', # Female 25-34
+                                            'B15001_056',
+                                            'B15001_057',
+                                            'B15001_058',
+                                            'B15001_059',
+                                            'B15001_060',
+                                            'B15001_064',
+                                            'B15001_065',
+                                            'B15001_066',
+                                            'B15001_067'
+                                            ),
+                              output = 'wide') %>%
+  mutate(Percent_College_Educated = 100*(B15001_015E + B15001_016E + B15001_017E + B15001_018E +
+                                          B15001_023E + B15001_024E + B15001_025E +
+                                          B15001_026E + B15001_056E + B15001_057E + 
+                                          B15001_058E + B15001_059E + B15001_064E + 
+                                          B15001_065E + B15001_066E + B15001_067E)/
+           (B15001_011E + B15001_019E + B15001_052E + B15001_060E)) %>%
+  select(GEOID, NAME, Percent_College_Educated)
+
+# Percent of population aged 16+ unemployed but seeking work
+ACS_unemployment_data <- get_acs(year = 2018,
+                                 geography = 'county',
+                                 variables = c('B23025_005E', # In labor force, unemployed
+                                               'B23025_001E' # Total population 16+
+                                               ),
+                                 output = 'wide') %>%
+  mutate(Percent_Pop_Active_LF_Unemployed = 100 * (B23025_005E/B23025_001E)) %>%
+  select(GEOID, NAME, Percent_Pop_Active_LF_Unemployed)
+
+# Percent of population under 65 without health insurance
+ACS_health_insurance_data <- get_acs(year = 2018,
+                                     geography = 'county',
+                                     table = 'B27010',
+                                     output = 'wide') %>%
+  mutate(Percent_Pop_Under_65_Without_Health_Insurance = 100 * 
+           ((B27010_017E + B27010_033E + B27010_050E)/(B27010_002E + B27010_018E + B27010_034E))) %>%
+  select(GEOID, NAME, Percent_Pop_Under_65_Without_Health_Insurance)
+
+# Racial composition
+ACS_race_ethnicity_data <- get_acs(year = 2018,
+                                   geography = 'county',
+                                   table = 'B03002',
+                                   output = 'wide') %>%
+  mutate(Percent_Pop_Non_Hispanic_White = 100 * 
+           (B03002_003E/B03002_001E),
+         Percent_Pop_Non_Hispanic_Black = 100 *
+           (B03002_004E/B03002_001E),
+         Percent_Pop_Non_Hispanic_Indian_Alaskan_Native = 100 * 
+           (B03002_005E/B03002_001E),
+         Percent_Pop_Hispanic = 100 * 
+           (B03002_012E/B03002_001E)) %>%
+  select(GEOID, NAME, Percent_Pop_Non_Hispanic_White,
+         Percent_Pop_Non_Hispanic_Black, Percent_Pop_Non_Hispanic_Indian_Alaskan_Native, 
+         Percent_Pop_Hispanic)
+
+# Median age
+ACS_median_age_data <- get_acs(year = 2018,
+                               geography = 'county',
+                               variables = c('B01002_001'),
+                               output = 'wide') %>%
+  select(GEOID, NAME, Median_Age = B01002_001E)
+
+# Percent of adult population (15+) that are married
+ACS_marriage_data <- get_acs(year = 2018,
+                             geography = 'county',
+                             table = 'B12001',
+                             output = 'wide') %>%
+  mutate(Percent_Adult_Pop_Married = 100 * 
+           (B12001_004E + B12001_013E)/(B12001_001E)) %>%
+  select(GEOID, NAME, Percent_Adult_Pop_Married)
+
+# Total population, and gender composition of total population
+ACS_population_gender_data <- get_acs(year = 2018,
+                                      geography = 'county',
+                                      table = 'B01001',
+                                      output = 'wide') %>%
+  mutate(Percent_Population_Female = 100 * 
+           (B01001_026E/B01001_001E)) %>%
+  select(GEOID, NAME, Percent_Population_Female, Total_Population = B01001_001E)
+
+# Percent of population that is considered rural. This comes from the 
+# decennial 2010 Census. Had to download this from NHGIS, got error messages when 
+# using the acs package.
+#Census_percent_rural_data <- get_decennial(year = 2010,
+#                                           geography = 'county',
+#                                           table = 'P2',
+#                                           output = 'wide',
+#                                           sumfile = 'sf1')
+Census_percent_rural_data <- read_csv('nhgis0028_csv/nhgis0028_ds172_2010_county.csv') %>%
+  mutate(County_FIPS = 1000*as.numeric(STATEA) + as.numeric(COUNTYA),
+         Percent_Rural = 100 * H7W005/H7W001) %>%
+  select(County_FIPS, Percent_Rural)
+
+# Data on county health rankings is taken from the 2016 rankings from the 
+# County Health Rankings organization (?), available here:
+# https://www.countyhealthrankings.org/explore-health-rankings/rankings-data-documentation/national-data-documentation-2010-2018
+county_health_rankings_data <- read_xls('2016 County Health Rankings Data - v3.xls',
+                                        sheet = 'Ranked Measure Data',
+                                        range = 'A2:EZ3143') %>%
+  # Calculate average number of annual driving deaths (because this number is the 
+  # total over a 5-year period)
+  mutate(Annual_Number_Driving_Deaths = `# Driving Deaths`/5,
+         County_FIPS = as.numeric(FIPS)) %>%
+  select(County_FIPS, Annual_Number_Driving_Deaths,
+         # Percent of adult population that is obese (BMI >=30)
+         Percent_Adult_Pop_Obese = `% Obese`,
+         # Percent of adult population that are smokers
+         Percent_Adult_Pop_Smokers = `% Smokers`)
+# NA values of the number of driving deaths are zeroes
+county_health_rankings_data$Annual_Number_Driving_Deaths[is.na(county_health_rankings_data$Annual_Number_Driving_Deaths)] = 0
+
+```
+
+The chunk of code below merges all this data together:
+
+```{r}
+# Merge together ACS data, using an inner join so we only have information on counties
+# with values for all variables
+final_county_data <- inner_join(ACS_education_data,
+                                ACS_health_insurance_data) %>%
+  inner_join(ACS_marriage_data) %>%
+  inner_join(ACS_median_age_data) %>%
+  inner_join(ACS_population_gender_data) %>%
+  inner_join(ACS_race_ethnicity_data) %>%
+  inner_join(ACS_unemployment_data) %>%
+  mutate(County_FIPS = as.numeric(GEOID)) %>%
+  select(-GEOID)
+
+# Merge data with Census percent rural data.
+final_county_data <- final_county_data %>%
+  inner_join(Census_percent_rural_data)
+
+# Merge data with county health rankings data. This process drops counties in 
+# Puerto Rico and any other territories, which we want to exclude.
+final_county_data <- final_county_data %>%
+  inner_join(county_health_rankings_data)
+
+# Calculate annual number of driving deaths per 100,000 residents
+final_county_data <- final_county_data %>%
+  mutate(Driving_Deaths_per_100k = 100000*Annual_Number_Driving_Deaths/Total_Population)
+
+```
+
+The chunk of code below creates scatterplots:
+
+```{r}
+# Percent smoking against percent obese
+ggplot(data = final_county_data, aes(x = Percent_Adult_Pop_Obese, 
+                                     y = Percent_Adult_Pop_Smokers)) +
+  geom_point() + 
+  labs(x = 'Percent of Adult Population that is Obese (2012)',
+       y = 'Percent of Adult Population that Smokes (2014)',
+       title = 'Prevalence of Obesity and Smoking by U.S. County',
+       caption = 'Data Source: 2016 County Health Rankings')
+
+# Drunk driving rate against total population
+ggplot(data = final_county_data, aes(x = Total_Population,
+                                     y = Driving_Deaths_per_100k)) + 
+  geom_point() + 
+  scale_x_log10() + 
+  labs(x = 'Total Population (2014-2018)',
+       y = 'Average Annual Driving Deaths per 100k Population \n(2010-2014)',
+       title = 'Total Population and Per Capita Driving Deaths by U.S. County',
+       caption = 'Data Source: 2014-2018 5-Year American Community Survey and 2016 County Health Rankings')
+
+# Percent male/female against total population
+ggplot(data = final_county_data, aes(x = Total_Population,
+                                     y = Percent_Population_Female)) + 
+  geom_point() + 
+  scale_x_log10() + 
+  labs(x = 'Total Population (2014-2018)',
+       y = 'Percent of Population that is Female',
+       title = 'Total Population and Gender Composition by U.S. County',
+       caption = 'Data Source: 2014-2018 5-Year American Community Survey')
+```
+
